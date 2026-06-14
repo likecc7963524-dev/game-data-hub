@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: game-data-hub
+    env: node
+    region: singapore
+    buildCommand: npm install && npm run web:build
+    startCommand: npm run web:server
+    envVars:
+      - key: PORT
+        value: 3001
+      - key: NODE_ENV
+        value: production
