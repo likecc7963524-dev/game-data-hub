@@ -33,6 +33,13 @@ export function stopSession(sessionId: string) {
   if (ctrl) { ctrl.abort(); abortControllers.delete(sessionId) }
 }
 
+// Generic stream writer interface — decoupled from Electron
+export interface StreamWriter {
+  chunk(sessionId: string, text: string): void
+  done(sessionId: string): void
+  error(sessionId: string, msg: string): void
+}
+
 // ---- Build system prompt with date + search capability ----
 function buildSystemPrompt(): string {
   const now = new Date()
@@ -127,49 +134,45 @@ async function reformulateQuery(userQuery: string): Promise<string> {
     }
     return userQuery
   } catch {
-    return userQuery // fallback to original query
+    return userQuery
   }
 }
 
-// ---- Main chat ----
-export async function chat(win: BrowserWindow, sessionId: string, messages: ChatMessage[], agentId = 'lol-update') {
+// ---- Core chat logic (decoupled from Electron) ----
+export async function chatCore(w: StreamWriter, sessionId: string, messages: ChatMessage[], agentId = 'lol-update') {
   if (!config.apiKey) {
-    win.webContents.send(`chat-error-${sessionId}`, '请先在设置中填写 DeepSeek API Key')
+    w.error(sessionId, '请先在设置中填写 DeepSeek API Key')
     return
   }
 
   const ctrl = new AbortController()
   abortControllers.set(sessionId, ctrl)
 
-  // Build final messages: system prompt replaces original system msg
   const systemMsg: ChatMessage = { role: 'system', content: buildSystemPrompt() }
   const nonSystem = messages.filter(m => m.role !== 'system')
   let finalMessages = [systemMsg, ...nonSystem]
 
-  // Extract user query for search
   const userQuery = [...messages].reverse().find(m => m.role === 'user')?.content || ''
 
-  // Web search — route by agent ID
   if (config.enableWebSearch && userQuery) {
     if (ctrl.signal.aborted) { abortControllers.delete(sessionId); return }
     try {
-      win.webContents.send(`chat-chunk-${sessionId}`, `🔍 正在理解查询...\n`)
+      w.chunk(sessionId, '🔍 正在理解查询...\n')
       const searchQuery = await reformulateQuery(userQuery)
       if (searchQuery !== userQuery) {
-        win.webContents.send(`chat-chunk-${sessionId}`, `🧠 改写为: "${searchQuery}"\n`)
+        w.chunk(sessionId, `🧠 改写为: "${searchQuery}"\n`)
       }
 
       const sources: string[] = []
       const parts: string[] = []
       const fetchers: Promise<string>[] = []
 
-      // Route by agent — each agent ONLY calls its own data source
       if (agentId === 'cs') {
-        win.webContents.send(`chat-chunk-${sessionId}`, `🎮 正在查询 5EPlay...\n`)
+        w.chunk(sessionId, '🎮 正在查询 5EPlay...\n')
         fetchers.push(fetch5EPlayer(userQuery).then(d => { if (d) { parts.unshift(d); sources.unshift('5EPlay') } return d }))
         fetchers.push(fetch5EEvent(userQuery).then(d => { if (d) { parts.push(d); sources.push('5EPlay') } return d }))
       } else if (agentId === 'lol') {
-        win.webContents.send(`chat-chunk-${sessionId}`, `🏆 正在查询 Riot API + Leaguepedia...\n`)
+        w.chunk(sessionId, '🏆 正在查询 Riot API + Leaguepedia...\n')
         const lolPlayerRe = /(faker|chovy|showmaker|ruler|viper|gumayusi|zeus|oner|kanavi|scout|knight|bin|elk|meiko|canyon|peanut|theshy|rookie|doinb|deft|beryl|keria)/i
         if (lolPlayerRe.test(userQuery)) {
           const pn = userQuery.match(lolPlayerRe)?.[1] || ''
@@ -177,14 +180,13 @@ export async function chat(win: BrowserWindow, sessionId: string, messages: Chat
         }
         fetchers.push(fetchLOL(userQuery).then(d => { if (d) { parts.push(d); sources.push('Riot API') } return d }))
       } else if (agentId === 'val') {
-        win.webContents.send(`chat-chunk-${sessionId}`, `⚡ 正在查询 Liquipedia Valorant...\n`)
+        w.chunk(sessionId, '⚡ 正在查询 Liquipedia Valorant...\n')
         fetchers.push(fetchValorant(userQuery).then(d => { if (d) { parts.unshift(d); sources.unshift('Liquipedia') } return d }))
       } else if (agentId === 'lol-update') {
-        win.webContents.send(`chat-chunk-${sessionId}`, `📋 正在查询 LOL 官方版本公告...\n`)
+        w.chunk(sessionId, '📋 正在查询 LOL 官方版本公告...\n')
         fetchers.push(fetchLOLUpdate(userQuery).then(d => { if (d) { parts.unshift(d); sources.unshift('LOL官方公告') } return d }))
       } else {
-        // AI assistant — Bing only
-        win.webContents.send(`chat-chunk-${sessionId}`, `🌐 正在搜索 Bing...\n`)
+        w.chunk(sessionId, '🌐 正在搜索 Bing...\n')
         fetchers.push(bingSearch(searchQuery).then(d => { if (d) { parts.push(d); sources.push('Bing') } return d }))
       }
 
@@ -194,14 +196,14 @@ export async function chat(win: BrowserWindow, sessionId: string, messages: Chat
       const source = [...new Set(sources)].join(' + ') || 'Bing'
 
       if (results) {
-        win.webContents.send(`chat-chunk-${sessionId}`, `✅ 已从 ${source} 获取数据\n\n`)
+        w.chunk(sessionId, `✅ 已从 ${source} 获取数据\n\n`)
         const ctxMsg: ChatMessage = {
           role: 'user',
           content: `[系统] 以下是从 ${source} 获取的最新数据：\n\n${results}\n\n请基于以上数据回答用户的问题。重要：请列出所有匹配的比赛/数据，不要只选一条。如果数据缺少用户要的信息，请如实说明。`
         }
         finalMessages.push(ctxMsg)
       } else {
-        win.webContents.send(`chat-chunk-${sessionId}`, '⚠️ 未找到搜索结果\n\n')
+        w.chunk(sessionId, '⚠️ 未找到搜索结果\n\n')
       }
     } catch {
       // search failure is non-fatal
@@ -209,7 +211,6 @@ export async function chat(win: BrowserWindow, sessionId: string, messages: Chat
     if (ctrl.signal.aborted) { abortControllers.delete(sessionId); return }
   }
 
-  // Call DeepSeek API
   try {
     const resp = await fetch(`${config.baseUrl}/chat/completions`, {
       method: 'POST',
@@ -231,7 +232,7 @@ export async function chat(win: BrowserWindow, sessionId: string, messages: Chat
       const errText = await resp.text()
       let msg = `API 错误 ${resp.status}`
       try { msg = JSON.parse(errText)?.error?.message || msg } catch { msg = errText.slice(0, 300) }
-      win.webContents.send(`chat-error-${sessionId}`, msg)
+      w.error(sessionId, msg)
       abortControllers.delete(sessionId)
       return
     }
@@ -254,25 +255,35 @@ export async function chat(win: BrowserWindow, sessionId: string, messages: Chat
         if (!trimmed || !trimmed.startsWith('data: ')) continue
         const data = trimmed.slice(6)
         if (data === '[DONE]') {
-          win.webContents.send(`chat-done-${sessionId}`)
+          w.done(sessionId)
           abortControllers.delete(sessionId)
           return
         }
         try {
           const delta = JSON.parse(data).choices?.[0]?.delta?.content
-          if (delta) win.webContents.send(`chat-chunk-${sessionId}`, delta)
-        } catch { /* skip malformed chunks */ }
+          if (delta) w.chunk(sessionId, delta)
+        } catch { /* skip malformed */ }
       }
     }
 
-    win.webContents.send(`chat-done-${sessionId}`)
+    w.done(sessionId)
   } catch (err: any) {
     if (err.name === 'AbortError') {
-      win.webContents.send(`chat-chunk-${sessionId}`, '\n\n⏹ 已停止')
+      w.chunk(sessionId, '\n\n⏹ 已停止')
     } else {
-      win.webContents.send(`chat-error-${sessionId}`, err.message || String(err))
+      w.error(sessionId, err.message || String(err))
     }
   } finally {
     abortControllers.delete(sessionId)
   }
+}
+
+// ---- Electron-specific adapter ----
+export async function chat(win: BrowserWindow, sessionId: string, messages: ChatMessage[], agentId = 'lol-update') {
+  const writer: StreamWriter = {
+    chunk: (sid, text) => win.webContents.send(`chat-chunk-${sid}`, text),
+    done: (sid) => win.webContents.send(`chat-done-${sid}`),
+    error: (sid, msg) => win.webContents.send(`chat-error-${sid}`, msg),
+  }
+  return chatCore(writer, sessionId, messages, agentId)
 }

@@ -1,16 +1,22 @@
 {
   "name": "deepseek-chat",
   "version": "1.0.0",
-  "description": "DeepSeek AI 桌面助手 - 联网版",
+  "description": "游戏数据通 - 多游戏竞技数据 AI 助手",
   "main": "./out/main/main.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "start": "electron-vite build && electron ."
+    "start": "electron-vite build && electron .",
+    "web:dev": "npx tsx server/server.ts & npx vite --config vite.config.web.ts",
+    "web:build": "npx vite build --config vite.config.web.ts",
+    "web:server": "npx tsx server/server.ts"
   },
   "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "tsx": "^4.22.4"
   },
   "devDependencies": {
     "@types/react": "^19.1.2",

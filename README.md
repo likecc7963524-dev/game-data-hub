@@ -32,16 +32,32 @@
 
 ### 安装 & 运行
 
+#### 桌面版（Electron）
+
 ```bash
-# 克隆仓库
-git clone https://github.com/你的用户名/游戏数据通.git
-cd 游戏数据通
-
-# 安装依赖
+git clone https://github.com/likecc7963524-dev/game-data-hub.git
+cd game-data-hub
 npm install
-
-# 启动应用
 npm run start
+```
+
+#### Web 版（浏览器直接打开）
+
+```bash
+# 1. 构建前端
+npm run web:build
+
+# 2. 启动服务（同时提供 API + 前端页面）
+npm run web:server
+
+# 3. 浏览器打开
+#    http://localhost:3001
+```
+
+开发模式（前端热更新 + 后端代理）：
+```bash
+npm run web:dev
+# 打开 http://localhost:5173
 ```
 
 启动后在设置中填入 DeepSeek API Key，开启联网搜索即可使用。
