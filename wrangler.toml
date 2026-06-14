@@ -1,0 +1,6 @@
+name = "game-data-hub"
+main = "server/worker.ts"
+compatibility_date = "2025-01-01"
+
+[observability]
+enabled = true

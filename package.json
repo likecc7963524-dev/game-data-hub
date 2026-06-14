@@ -9,7 +9,8 @@
     "start": "electron-vite build && electron .",
     "web:dev": "npx tsx server/server.ts & npx vite --config vite.config.web.ts",
     "web:build": "npx vite build --config vite.config.web.ts",
-    "web:server": "npx tsx server/server.ts"
+    "web:server": "npx tsx server/server.ts",
+    "pages:build": "set VITE_BASE=/game-data-hub/ && npx vite build --config vite.config.web.ts"
   },
   "dependencies": {
     "cors": "^2.8.6",
